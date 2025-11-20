@@ -2126,20 +2126,160 @@ class ProxyServerSystem extends EventEmitter {
       }
       res.redirect("/login");
     };
-    app.get("/login", (req, res) => {
-      if (req.session.isAuthenticated) {
-        return res.redirect("/");
+app.get("/login", (req, res) => {
+  if (req.session.isAuthenticated) {
+    return res.redirect("/");
+  }
+  const loginHtml = `
+  <!DOCTYPE html>
+  <html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>登录</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* 禁止全局滚动和橡皮筋效果 */
+        background: #f0f2f5;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       }
-      const loginHtml = `
-      <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>登录</title>
-      <style>body{display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;background:#f0f2f5}form{background:white;padding:40px;border-radius:10px;box-shadow:0 4px 8px rgba(0,0,0,0.1);text-align:center}input{width:250px;padding:10px;margin-top:10px;border:1px solid #ccc;border-radius:5px}button{width:100%;padding:10px;background-color:#007bff;color:white;border:none;border-radius:5px;margin-top:20px;cursor:pointer}.error{color:red;margin-top:10px}</style>
-      </head><body><form action="/login" method="post"><h2>请输入 API Key</h2>
-      <input type="password" name="apiKey" placeholder="API Key" required autofocus><button type="submit">登录</button>
-      ${
-        req.query.error ? '<p class="error">API Key 错误!</p>' : ""
-      }</form></body></html>`;
-      res.send(loginHtml);
-    });
+      
+      /* 核心：使用一个全屏容器来处理布局和潜在的滚动 */
+      .container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center; 
+        overflow-y: auto; /* 当高度不够时（键盘弹出），允许内部滚动 */
+        -webkit-overflow-scrolling: touch;
+        
+        /* 关键优化：通过 padding-bottom 把中心点视觉上移 */
+        /* 这样表单平时会显示在屏幕偏上位置，键盘弹起时正好不容易被遮挡 */
+        padding-bottom: 20vh; 
+      }
+
+      /* 当屏幕高度非常小（比如横屏或键盘弹起且屏幕很小时），取消上移效果，防止顶部被切 */
+      @media (max-height: 500px) {
+        .container {
+          padding-bottom: 0;
+          justify-content: flex-start; /* 顶端对齐 */
+          padding-top: 20px;
+        }
+      }
+
+      form {
+        background: white;
+        padding: 30px 25px;
+        border-radius: 16px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+        text-align: center;
+        width: 85%;
+        max-width: 360px;
+        flex-shrink: 0; /* 防止表单被压缩 */
+        transition: transform 0.3s ease;
+      }
+
+      h2 {
+        margin-top: 0;
+        margin-bottom: 25px;
+        font-size: 1.3rem;
+        color: #333;
+        font-weight: 600;
+      }
+
+      input {
+        width: 100%;
+        padding: 14px;
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        font-size: 16px; /* iOS防缩放 */
+        outline: none;
+        background: #f9f9f9;
+        -webkit-appearance: none;
+        transition: all 0.2s;
+      }
+      
+      input:focus {
+        background: #fff;
+        border-color: #007bff;
+        box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+      }
+
+      button {
+        width: 100%;
+        padding: 14px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 10px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+        -webkit-tap-highlight-color: transparent;
+        box-shadow: 0 4px 6px rgba(0,123,255,0.2);
+      }
+      
+      button:active {
+        background-color: #0056b3;
+        transform: scale(0.98);
+      }
+
+      .error {
+        color: #dc3545;
+        margin-top: 15px;
+        font-size: 14px;
+        background: #fff5f5;
+        padding: 8px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <form action="/login" method="post">
+        <h2>API Key 验证</h2>
+        <input type="password" name="apiKey" placeholder="请输入 API Key" required autofocus autocomplete="off">
+        <button type="submit">进入系统</button>
+        ${req.query.error ? '<div class="error">验证失败，请重试</div>' : ""}
+      </form>
+    </div>
+
+    <script>
+      // 解决 iOS 和 Android 键盘遮挡问题的终极方案
+      const input = document.querySelector('input');
+      const container = document.querySelector('.container');
+
+      input.addEventListener('focus', () => {
+        // 延时等待键盘完全弹起
+        setTimeout(() => {
+          // 方法1: 滚动容器让元素居中
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 300);
+      });
+
+      // 针对 iOS 禁止整个页面被拖动的弹性效果，但允许 .container 内部必要的滚动
+      document.body.addEventListener('touchmove', function(e) {
+        // 如果不是在 container 内部滑动，则禁止（防止背景橡皮筋）
+        if (!e.target.closest('.container')) {
+          e.preventDefault();
+        }
+      }, { passive: false });
+    </script>
+  </body>
+  </html>`;
+  res.send(loginHtml);
+});
     app.post("/login", (req, res) => {
       const { apiKey } = req.body;
       if (apiKey && this.config.apiKeys.includes(apiKey)) {
