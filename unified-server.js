@@ -2803,7 +2803,7 @@ class ProxyServerSystem extends EventEmitter {
       this.enableNativeReasoning = !this.enableNativeReasoning;
       const statusText = this.enableNativeReasoning ? "已启用" : "已禁用";
       this.logger.info(`[WebUI] 强制原生格式推理 (Native Thinking) 状态已切换为: ${statusText}`);
-      res.status(200).send(`强制原生格式推理${statusText}。所有原生 Gemini 格式请求都将自动注入 thinkingConfig。`);
+      res.status(200).send(`强制原生格式推理${statusText}。所有新的原生 Gemini 格式请求都将受此影响。`);
     });
 
     // ==========================================================
