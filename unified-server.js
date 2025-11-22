@@ -1019,6 +1019,10 @@ class RequestHandler {
         );
         this.failureCount = 0;
       }
+      
+      // === [修复] 实时捕捉 finishReason 的变量 ===
+      let capturedFinishReason = "UNKNOWN";
+      // =======================================
 
       if (isOpenAIStream) {
         res.status(200).set({
@@ -1035,6 +1039,13 @@ class RequestHandler {
             break;
           }
           if (message.data) {
+            // === [修复] 正则扫描 Google 的原始数据 ===
+            const match = message.data.match(/"finishReason"\s*:\s*"([^"]+)"/);
+            if (match && match[1]) {
+                capturedFinishReason = match[1];
+            }
+            // ========================================
+
             const translatedChunk = this._translateGoogleToOpenAIStream(
               message.data,
               model
@@ -1047,19 +1058,21 @@ class RequestHandler {
         }
 
         try {
-          if (lastGoogleChunk.startsWith("data: ")) {
+           // 如果前面的流式扫描没扫到，尝试解析最后一块（旧逻辑）作为兜底
+          if (capturedFinishReason === "UNKNOWN" && lastGoogleChunk.startsWith("data: ")) {
             const jsonString = lastGoogleChunk.substring(6).trim();
             if (jsonString) {
               const lastResponse = JSON.parse(jsonString);
-              const finishReason =
-                lastResponse.candidates?.[0]?.finishReason || "UNKNOWN";
-              this.logger.info(
-                `✅ [Request] OpenAI流式响应结束，原因: ${finishReason}，请求ID: ${requestId}`
-              );
+              capturedFinishReason = lastResponse.candidates?.[0]?.finishReason || "UNKNOWN";
             }
           }
         } catch (e) {
         }
+        
+        this.logger.info(
+            `✅ [Request] OpenAI流式响应结束，原因: ${capturedFinishReason}，请求ID: ${requestId}`
+        );
+        
       } else {
         let fullBody = "";
         while (true) {
@@ -1435,6 +1448,11 @@ async processModelListRequest(req, res) {
     this._setResponseHeaders(res, headerMessage, true); 
     
     this.logger.info("[Request] 开始流式传输...");
+    
+    // === [修复] 实时捕捉 finishReason 的变量 ===
+    let capturedFinishReason = "UNKNOWN"; 
+    // ========================================
+
     try {
       let lastChunk = "";
       while (true) {
@@ -1445,22 +1463,31 @@ async processModelListRequest(req, res) {
         }
         if (dataMessage.data) {
           res.write(dataMessage.data);
+          
+          // === [修复] 正则扫描 Google 的原始数据 ===
+          const match = dataMessage.data.match(/"finishReason"\s*:\s*"([^"]+)"/);
+          if (match && match[1]) {
+              capturedFinishReason = match[1];
+          }
+          // ========================================
+          
           lastChunk = dataMessage.data;
         }
       }
       try {
-        if (lastChunk.startsWith("data: ")) {
+        if (capturedFinishReason === "UNKNOWN" && lastChunk.startsWith("data: ")) {
           const jsonString = lastChunk.substring(6).trim();
           if (jsonString) {
             const lastResponse = JSON.parse(jsonString);
-            const finishReason =
-              lastResponse.candidates?.[0]?.finishReason || "UNKNOWN";
-            this.logger.info(
-              `✅ [Request] 响应结束，原因: ${finishReason}，请求ID: ${proxyRequest.request_id}`
-            );
+            capturedFinishReason = lastResponse.candidates?.[0]?.finishReason || "UNKNOWN";
           }
         }
       } catch (e) {}
+      
+      this.logger.info(
+        `✅ [Request] 响应结束，原因: ${capturedFinishReason}，请求ID: ${proxyRequest.request_id}`
+      );
+      
     } catch (error) {
       if (error.message !== "Queue timeout") throw error;
       this.logger.warn("[Request] 真流式响应超时，可能流已正常结束。");

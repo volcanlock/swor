@@ -114,7 +114,7 @@ class RequestProcessor {
     const cancelTimeout = () => {
       if (timeoutId) {
         clearTimeout(timeoutId);
-        Logger.output("已收到数据块，超时限制已解除。");
+        // Logger.output("已收到数据块，超时限制已解除。"); // 减少日志噪音
       }
     };
 
@@ -236,8 +236,6 @@ class RequestProcessor {
           }
         }
         
-        // [已移除] 模块2：智能签名逻辑已被删除
-
         config.body = JSON.stringify(bodyObj);
       } catch (e) {
         Logger.output("处理请求体时发生错误:", e.message);
@@ -372,51 +370,67 @@ class ProxySystem extends EventTarget {
         const reader = response.body.getReader();
         const textDecoder = new TextDecoder();
         let wasProhibited = false;
+        let streamBuffer = ""; // [新增] 缓冲区，处理被切断的JSON
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
           const chunk = textDecoder.decode(value, { stream: true });
-
+          
           if (mode === "real") {
-            // === 续写检测逻辑 ===
+            // 1. 发送原始数据给前端（确保速度）
+            this._transmitChunk(chunk, operationId);
+
+            // 2. 续写检测逻辑
             if (resumeEnabled) {
-                // 尝试解析数据块以查找 finishReason
-                const lines = chunk.split('\n');
+                // 将新块拼接到缓冲区
+                streamBuffer += chunk;
+                
+                // 尝试按行分割处理
+                const lines = streamBuffer.split('\n');
+                
+                // 最后一行可能不完整，保留在缓冲区，等待下一次拼接
+                // 如果正好以 \n 结尾，pop出来的就是空字符串，这也没问题
+                streamBuffer = lines.pop(); 
+
                 for (const line of lines) {
                     if (!line.trim().startsWith('data:')) continue;
                     const jsonStr = line.replace(/^data:\s*/, '').trim();
                     if (!jsonStr) continue;
+                    
                     try {
                         const data = JSON.parse(jsonStr);
-                        const finishReason = data.candidates?.[0]?.finishReason;
                         
-                        // 检查是否因为安全原因截断
-                        if (finishReason === 'PROHIBITED_CONTENT' || finishReason === 'SAFETY') {
-                            Logger.output(`⚠️ 检测到内容截断: ${finishReason} (尝试 ${retryCount + 1}/${resumeLimit + 1})`);
-                            wasProhibited = true;
-                            break; 
-                        }
-                        
-                        // 累积文本，以防下次需要
+                        // 累积文本
                         const textPart = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
                         accumulatedSinceLastRetry += textPart;
-                    } catch (e) {}
-                }
-            }
 
-            if (wasProhibited) break; // 跳出读取流循环，准备重试
-            this._transmitChunk(chunk, operationId);
+                        const finishReason = data.candidates?.[0]?.finishReason;
+                        
+                        // [关键修改] 只要 finishReason 存在且不是 STOP，就视为异常截断
+                        // 包括 PROHIBITED_CONTENT, SAFETY, RECITATION, OTHER 等
+                        if (finishReason && finishReason !== 'STOP') {
+                            Logger.output(`⚠️ 检测到截断信号: ${finishReason} (尝试 ${retryCount + 1}/${resumeLimit + 1})`);
+                            wasProhibited = true;
+                            // 这里不 break，继续解析剩余行，以防有后续数据
+                        }
+                    } catch (e) {
+                        // 忽略解析错误，等待缓冲区拼接完整
+                    }
+                }
+                
+                if (wasProhibited) break; // 跳出 reader 循环
+            }
           } else {
-             // Fake 模式不支持自动续写，直接转发
+             // Fake 模式直接转发
              this._transmitChunk(chunk, operationId);
           }
         } // End Reader Loop
 
         // === 处理续写 ===
         if (resumeEnabled && wasProhibited && retryCount < resumeLimit) {
-            Logger.output(`🔄 正在准备上下文拼接续写...`);
+            Logger.output(`🔄 正在准备上下文拼接续写... (已累积字符: ${accumulatedSinceLastRetry.length})`);
             try {
                 let bodyObj = JSON.parse(currentSpec.body);
                 if (!bodyObj.contents) bodyObj.contents = [];
@@ -427,18 +441,20 @@ class ProxySystem extends EventTarget {
                 if (lastMsg && lastMsg.role === 'model') {
                     if (!lastMsg.parts) lastMsg.parts = [{ text: "" }];
                     lastMsg.parts[0].text += accumulatedSinceLastRetry;
+                    Logger.output(`📄 [Prefill] 追加到现有 model 消息`);
                 } else {
                     bodyObj.contents.push({
                         role: "model",
                         parts: [{ text: accumulatedSinceLastRetry }]
                     });
+                    Logger.output(`📄 [Prefill] 新建 model 消息用于上下文拼接`);
                 }
 
                 currentSpec.body = JSON.stringify(bodyObj);
                 accumulatedSinceLastRetry = "";
                 retryCount++;
                 
-                Logger.output(`✅ 上下文拼接完成，发起重试请求...`);
+                Logger.output(`✅ 续写请求已构造，正在重发...`);
                 continue; // 继续最外层的 while(true) 循环，使用新的 Body 发起请求
 
             } catch (e) {
@@ -448,6 +464,9 @@ class ProxySystem extends EventTarget {
         }
 
         // 正常完成或次数用尽
+        if (resumeEnabled && wasProhibited) {
+             Logger.output(`🛑 达到最大重试次数或无法继续续写。`);
+        }
         break;
       } // End Main While Loop
 
