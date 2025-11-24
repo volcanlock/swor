@@ -2485,9 +2485,10 @@ class ProxyServerSystem extends EventEmitter {
         .action-group { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; }
         .action-group button, .action-group select { font-size: 1em; border: 1px solid #ccc; padding: 10px 15px; border-radius: 8px; cursor: pointer; transition: background-color 0.3s ease; }
         .action-group button:hover { opacity: 0.85; }
+        /* [修改] 所有按钮统一为蓝色 */
         .action-group button { background-color: #007bff; color: white; border-color: #007bff; }
-        .action-group button.warning-btn { background-color: #f39c12; border-color: #f39c12; }
-        .action-group button.purple-btn { background-color: #9b59b6; border-color: #8e44ad; }
+        .action-group button.warning-btn { background-color: #007bff; border-color: #007bff; }
+        .action-group button.purple-btn { background-color: #007bff; border-color: #007bff; }
         .action-group select { background-color: #ffffff; color: #000000; -webkit-appearance: none; appearance: none; }
         @media (max-width: 600px) {
             body { padding: 0.5em; }
@@ -2546,9 +2547,10 @@ class ProxyServerSystem extends EventEmitter {
                 <select id="accountIndexSelect">${accountOptionsHtml}</select>
                 <button onclick="switchSpecificAccount()">切换账号</button>
                 <button onclick="toggleStreamingMode()">切换流模式</button>
+                <!-- [修改] 移除了内联样式，统一使用 CSS 蓝色 -->
                 <button class="warning-btn" onclick="toggleReasoning()">强制开启OAI格式推理</button>
-                <button class="warning-btn" style="background-color: #d35400; border-color: #d35400;" onclick="toggleNativeReasoning()">强制开启原生格式推理</button>
-                <button class="purple-btn" onclick="configureResume()">设置自动续写</button>
+                <button class="warning-btn" onclick="toggleNativeReasoning()">强制开启原生格式推理</button>
+                <button class="purple-btn" onclick="configureResume()">设置截断自动续写</button>
             </div>
         </div>
         </div>
@@ -2658,7 +2660,7 @@ class ProxyServerSystem extends EventEmitter {
         }
 
         function configureResume() {
-            const input = prompt("【设置自动续写】\\n请输入最大重试次数 (默认为 3)\\n输入 0 即代表关闭此功能:", currentResumeLimit);
+            const input = prompt("【设置截断自动续写】\\n请输入最大重试次数 (默认为 3)\\n输入 0 即代表关闭此功能:", currentResumeLimit);
             if (input === null) return; 
             const limit = parseInt(input, 10);
             if (isNaN(limit) || limit < 0) {
