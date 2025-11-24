@@ -2649,7 +2649,7 @@ class ProxyServerSystem extends EventEmitter {
         }
 
         function configureResume() {
-            const input = prompt("【设置截断自动续写】\\n请输入最大重试次数 (默认为 3)\\n输入 0 即代表关闭此功能:", currentResumeLimit);
+            const input = prompt("请输入最大重试次数 (默认为 3)\\n输入 0 即代表关闭此功能:", currentResumeLimit);
             if (input === null) return; 
             const limit = parseInt(input, 10);
             if (isNaN(limit) || limit < 0) {
