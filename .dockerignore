@@ -1,9 +1,16 @@
 .git
 .github
+
 Dockerfile
 .dockerignore
+
 app.env
 deploy.sh
-save-auth.js
+
 LICENSE
 README.md
+
+node_modules
+npm-debug.log
+
+save-auth.js
