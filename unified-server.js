@@ -10,6 +10,7 @@ const path = require("path");
 const { firefox } = require("playwright");
 const os = require("os");
 
+// ... (AUTH SOURCE MANAGEMENT MODULE - No changes) ...
 // ===================================================================================
 // AUTH SOURCE MANAGEMENT MODULE
 // ===================================================================================
@@ -163,6 +164,7 @@ class AuthSource {
   }
 }
 
+// ... (BROWSER MANAGEMENT MODULE - No changes) ...
 // ===================================================================================
 // BROWSER MANAGEMENT MODULE
 // ===================================================================================
@@ -564,6 +566,7 @@ class BrowserManager {
   }
 }
 
+// ... (PROXY SERVER MODULE - No changes in LoggingService, MessageQueue, ConnectionRegistry) ...
 // ===================================================================================
 // PROXY SERVER MODULE
 // ===================================================================================
@@ -978,6 +981,13 @@ class RequestHandler {
          this.logger.warn("[System] 系统正在等待/进行账号切换，拒绝新请求以排空队列。");
          return this._sendErrorResponse(res, 503, "Server is rotating accounts, please retry shortly.");
     }
+
+    // [新增] 处理原生请求的 2.5 -> 3.0 重定向
+    if (this.serverSystem.redirect25to30 && req.path && req.path.includes("gemini-2.5-pro")) {
+         this.logger.info(`[Router] 检测到 gemini-2.5-pro，正在重定向到 gemini-3-pro-preview (Native)`);
+         req.url = req.url.replace("gemini-2.5-pro", "gemini-3-pro-preview");
+         req.path = req.path.replace("gemini-2.5-pro", "gemini-3-pro-preview");
+    }
     
     // 2. 增加活跃计数
     this.activeRequestCount++;
@@ -1093,7 +1103,13 @@ class RequestHandler {
 
     const requestId = this._generateRequestId();
     const isOpenAIStream = req.body.stream === true;
-    const model = req.body.model || "gemini-1.5-pro-latest";
+    let model = req.body.model || "gemini-1.5-pro-latest";
+    
+    // [新增] 处理 OpenAI 请求的 2.5 -> 3.0 重定向
+    if (this.serverSystem.redirect25to30 && model === "gemini-2.5-pro") {
+        this.logger.info(`[Adapter] 检测到 gemini-2.5-pro，正在重定向到 gemini-3-pro-preview (OpenAI)`);
+        model = "gemini-3-pro-preview";
+    }
 
     let googleBody;
     try {
@@ -1279,6 +1295,8 @@ class RequestHandler {
       this._tryExecutePendingSwitch();
     }
   }
+
+// ... (Rest of RequestHandler methods: processModelListRequest, _cancelBrowserRequest, etc. - No changes) ...
 
 async processModelListRequest(req, res) {
   const requestId = this._generateRequestId();
@@ -1999,6 +2017,9 @@ class ProxyServerSystem extends EventEmitter {
     this.enableResume = false; 
     this.resumeLimit = 3; // 默认最大重试3次
 
+    // [新增] 2.5 Pro 到 3.0 Pro 重定向开关
+    this.redirect25to30 = false;
+
     this.authSource = new AuthSource(this.logger);
     this.browserManager = new BrowserManager(
       this.logger,
@@ -2606,6 +2627,7 @@ class ProxyServerSystem extends EventEmitter {
 <span class="label">强制OAI格式推理 (OAI)</span>: <span class="${this.enableReasoning ? "status-info" : ""}">${this.enableReasoning ? "已启用 (注入thinkingConfig)" : "已禁用"}</span>
 <span class="label">强制原生格式推理 (Native)</span>: <span class="${this.enableNativeReasoning ? "status-info" : ""}">${this.enableNativeReasoning ? "已启用 (注入thinkingConfig)" : "已禁用"}</span>
 <span class="label">截断自动续写</span>: <span class="${this.enableResume ? "status-info" : ""}">${this.enableResume ? "已启用 (Limit: " + this.resumeLimit + ")" : "已禁用"}</span>
+<span class="label">2.5Pro重定向为3.0Pro</span>: <span class="${this.redirect25to30 ? "status-info" : ""}">${this.redirect25to30 ? "已启用" : "已禁用"}</span>
 <span class="label">立即切换 (状态码)</span>: ${
         config.immediateSwitchStatusCodes.length > 0
           ? `[${config.immediateSwitchStatusCodes.join(", ")}]`
@@ -2640,6 +2662,7 @@ class ProxyServerSystem extends EventEmitter {
                 <button class="warning-btn" onclick="toggleReasoning()">强制开启OAI格式推理</button>
                 <button class="warning-btn" onclick="toggleNativeReasoning()">强制开启原生格式推理</button>
                 <button class="purple-btn" onclick="configureResume()">设置截断自动续写</button>
+                <button class="warning-btn" onclick="toggleRedirect25to30()">将2.5Pro重定向为3.0Pro</button>
             </div>
         </div>
 
@@ -2669,6 +2692,9 @@ class ProxyServerSystem extends EventEmitter {
                 const resumeClass = data.status.enableResume ? "status-info" : "";
                 const resumeText = data.status.enableResume ? ("已启用 (Limit: " + data.status.resumeLimit + ")") : "已禁用";
                 
+                const redirectClass = data.status.redirect25to30 ? "status-info" : "";
+                const redirectText = data.status.redirect25to30 ? "已启用" : "已禁用";
+                
                 currentResumeLimit = data.status.resumeLimit;
 
                 statusPre.innerHTML = 
@@ -2679,6 +2705,7 @@ class ProxyServerSystem extends EventEmitter {
                     '<span class="label">强制OAI格式推理 (OAI)</span>: <span class="' + reasoningClass + '">' + reasoningText + '</span>\\n' +
                     '<span class="label">强制原生格式推理 (Native)</span>: <span class="' + nativeReasoningClass + '">' + nativeReasoningText + '</span>\\n' +
                     '<span class="label">截断自动续写</span>: <span class="' + resumeClass + '">' + resumeText + '</span>\\n' +
+                    '<span class="label">2.5Pro重定向为3.0Pro</span>: <span class="' + redirectClass + '">' + redirectText + '</span>\\n' +
                     '<span class="label">立即切换 (状态码)</span>: ' + data.status.immediateSwitchStatusCodes + '\\n' +
                     '<span class="label">API 密钥</span>: ' + data.status.apiKeySource + '\\n' +
                     '--- 账号状态 ---\\n' +
@@ -2773,6 +2800,16 @@ class ProxyServerSystem extends EventEmitter {
             .catch(err => alert('设置失败: ' + err));
         }
 
+        function toggleRedirect25to30() {
+             fetch('/api/toggle-redirect-25-30', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}) 
+             })
+            .then(res => res.text()).then(data => { alert(data); updateContent(); })
+            .catch(err => alert('切换失败: ' + err));
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             updateContent(); 
             setInterval(updateContent, 5000);
@@ -2810,6 +2847,8 @@ class ProxyServerSystem extends EventEmitter {
           // [新增] 返回续写状态
           enableResume: this.enableResume,
           resumeLimit: this.resumeLimit, // [新增] 返回次数限制
+          // [新增] 返回重定向状态
+          redirect25to30: this.redirect25to30,
           browserConnected: !!browserManager.browser,
           immediateSwitchStatusCodes:
             config.immediateSwitchStatusCodes.length > 0
@@ -2924,6 +2963,16 @@ class ProxyServerSystem extends EventEmitter {
       const statusText = this.enableResume ? `已启用 (重试限制: ${limit})` : "已关闭";
       this.logger.info(`[WebUI] 截断自动续写功能配置更新: ${statusText}`);
       res.status(200).send(`自动续写功能${statusText}。`);
+    });
+
+    // ==========================================================
+    // [新增] 切换 2.5 Pro 重定向到 3.0 Pro 接口
+    // ==========================================================
+    app.post("/api/toggle-redirect-25-30", isAuthenticated, (req, res) => {
+      this.redirect25to30 = !this.redirect25to30;
+      const statusText = this.redirect25to30 ? "已启用" : "已禁用";
+      this.logger.info(`[WebUI] 2.5Pro重定向为3.0Pro 功能已切换为: ${statusText}`);
+      res.status(200).send(`2.5Pro重定向为3.0Pro 功能${statusText}。`);
     });
 
     app.use(this._createAuthMiddleware());
