@@ -5,6 +5,7 @@ CONTAINER_NAME="aisbuild"
 IMAGE_NAME="ghcr.io/wuchen0309/aisbuild:latest"
 HOST_PORT="7860"
 ENV_FILE="app.env"
+# 默认代理为空，稍后会询问用户
 PROXY_URL=""
 
 # --- 环境检查 ---
@@ -14,41 +15,62 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # ==========================================
-# 强制用户设置 API Key
+# [交互 1] 强制设置 API Key (必填)
 # ==========================================
 echo ""
-echo "--- 🔑 配置代理密码 (API Key) ---"
+echo "----------------------------------------------------"
+echo "🔑 步骤 1/2: 配置 API Key (必须设置)"
+echo "----------------------------------------------------"
 
-# 初始化变量
 USER_API_KEY=""
-
-# 循环检查：如果变量为空，则一直要求输入
+# 循环直到用户输入有效内容
 while [ -z "$USER_API_KEY" ]; do
-    read -p "请输入您想要设置的 API Key (必填，不能为空): " USER_API_KEY
-    
-    # 去除可能输入的前后空格
-    USER_API_KEY=$(echo "$USER_API_KEY" | xargs)
+    read -p "请输入 API Key (不能为空): " USER_API_KEY
+    USER_API_KEY=$(echo "$USER_API_KEY" | xargs) # 去除前后空格
 
     if [ -z "$USER_API_KEY" ]; then
-        echo "❌ 错误: API Key 是必须设置的，不能留空！请重新输入。"
+        echo "❌ 错误: API Key 不能为空，请重新输入！"
         echo ""
     fi
 done
 
 # 写入配置到 app.env
 if grep -q "^API_KEYS=" "$ENV_FILE"; then
-    # 存在则替换
     sed -i "s|^API_KEYS=.*|API_KEYS=$USER_API_KEY|" "$ENV_FILE"
 else
-    # 不存在则追加
     echo -e "\nAPI_KEYS=$USER_API_KEY" >> "$ENV_FILE"
 fi
+echo "✅ API Key 已保存。"
 
-echo "✅ API Key 已成功配置。"
-echo ""
+
 # ==========================================
+# [交互 2] 设置网络代理 (选填)
+# ==========================================
+echo ""
+echo "----------------------------------------------------"
+echo "🌐 步骤 2/2: 配置网络代理 (可选)"
+echo "----------------------------------------------------"
+echo "如果您的服务器在国内，建议配置 HTTP 代理以确保能连接外网。"
+echo "格式示例: http://127.0.0.1:7890"
+read -p "请输入代理地址 (直接回车表示不使用代理): " USER_PROXY
 
-echo "🚀 开始部署: $CONTAINER_NAME"
+# 去除空格
+USER_PROXY=$(echo "$USER_PROXY" | xargs)
+
+if [ -n "$USER_PROXY" ]; then
+    PROXY_URL="$USER_PROXY"
+    echo "✅ 已设置代理: $PROXY_URL"
+else
+    PROXY_URL=""
+    echo "⏭️  未输入，将直接连接网络 (不使用代理)。"
+fi
+echo "----------------------------------------------------"
+echo ""
+
+# ==========================================
+# 开始部署逻辑
+# ==========================================
+echo "🚀 开始部署容器: $CONTAINER_NAME"
 
 # --- 更新镜像与清理旧容器 ---
 echo "--> 拉取镜像并清理旧容器..."
@@ -73,9 +95,9 @@ if [ -d "./auth" ]; then
     DOCKER_OPTS+=(-v "$(pwd)/auth:/app/auth")
 fi
 
-# 配置代理（如果设置）
+# 配置代理（如果用户在上一步设置了）
 if [ -n "$PROXY_URL" ]; then
-    echo "--> 启用代理: $PROXY_URL"
+    echo "--> 注入代理环境变量..."
     DOCKER_OPTS+=(-e "HTTP_PROXY=${PROXY_URL}" -e "HTTPS_PROXY=${PROXY_URL}")
 fi
 
