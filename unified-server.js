@@ -2244,7 +2244,60 @@ class ProxyServerSystem extends EventEmitter {
       input:focus { background: #fff; border-color: var(--primary-color); box-shadow: 0 0 0 2px rgba(0,122,255,0.1); }
       .eye-btn {
         position: absolute; right: 15px; top: 50%; transform: translateY(-50%);
-        cursor: pointer; color isAuthenticated, (req, res) => {
+        cursor: pointer; color: #8e8e93; display: flex;
+      }
+      button {
+        width: 100%; padding: 16px;
+        background: var(--primary-color);
+        color: white; border: none; border-radius: 12px;
+        font-size: 16px; font-weight: 600;
+        cursor: pointer; transition: opacity 0.2s;
+      }
+      button:hover { opacity: 0.9; }
+      .error-msg {
+        color: #ff3b30; background: #fff2f2;
+        padding: 10px; border-radius: 8px; margin-top: 20px; font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="login-card">
+      <form action="/login" method="post">
+        <h2>验证身份</h2>
+        <div class="input-group">
+            <input type="password" id="apiKeyInput" name="apiKey" placeholder="输入 API Key" required>
+            <div class="eye-btn" id="toggleBtn">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </div>
+        </div>
+        <button type="submit">登 录</button>
+        ${req.query.error ? '<div class="error-msg">API Key 无效</div>' : ""}
+      </form>
+    </div>
+    <script>
+      const input = document.getElementById('apiKeyInput');
+      const btn = document.getElementById('toggleBtn');
+      btn.onclick = () => {
+        const isPwd = input.type === 'password';
+        input.type = isPwd ? 'text' : 'password';
+        btn.style.color = isPwd ? '#007aff' : '#8e8e93';
+      }
+    </script>
+  </body>
+  </html>`;
+  res.send(loginHtml);
+});
+    app.post("/login", (req, res) => {
+      const { apiKey } = req.body;
+      if (apiKey && this.config.apiKeys.includes(apiKey)) {
+        req.session.isAuthenticated = true;
+        res.redirect("/");
+      } else {
+        res.redirect("/login?error=1");
+      }
+    });
+
+    app.get("/", isAuthenticated, (req, res) => {
       const statusHtml = `
 <!DOCTYPE html>
 <html lang="zh-CN">
