@@ -2548,8 +2548,8 @@ class ProxyServerSystem extends EventEmitter {
                 <div class="card-body">
                     <div class="row-item">
                         <div>
-                            <div class="row-label">当前账号状态</div>
-                            <div class="row-desc" id="usageStats">加载中...</div>
+                            <div class="row-label">当前账号</div>
+                            <!-- 已移除使用次数统计，避免误解为额度限制 -->
                         </div>
                         <div class="row-value" id="currentAccountBadge">#--</div>
                     </div>
@@ -2647,7 +2647,7 @@ class ProxyServerSystem extends EventEmitter {
                 if(s.resumeLimit > 0) document.getElementById('resumeLimitInput').value = s.resumeLimit;
 
                 document.getElementById('currentAccountBadge').textContent = '#' + s.currentAuthIndex;
-                document.getElementById('usageStats').textContent = '使用: ' + s.usageCount;
+                // 已移除 usageStats 更新逻辑
 
                 const selector = document.getElementById('accountSelector');
                 // [修复1] 防闪烁：只有当下拉框没有被聚焦（用户没在操作）时才更新
