@@ -520,7 +520,7 @@ class BrowserManager {
   }
 
   // ===================================================================================
-  // [修改] 后台常驻唤醒守护 (V10 文本全等排除法 - 终极稳健版)
+  // [修改] 后台常驻唤醒守护 (V13 双重指纹校验版 - 绝对唯一)
   // ===================================================================================
   async _startBackgroundWakeup() {
     // 1. 初始缓冲
@@ -528,21 +528,17 @@ class BrowserManager {
     
     if (!this.page || this.page.isClosed()) return;
 
-    // 2. 主动发起预热请求 (Fetch Models)
-    this.logger.info('[Wakeup] 📡 发起预热请求 (Fetch Models) 以激活会话...');
-    try {
-        await this.page.evaluate(async () => {
-            try { await fetch('/v1beta/models'); } catch(e) {}
-        });
-    } catch (e) {}
+    // 2. 主动发起预热
+    this.logger.info('[Wakeup] 📡 发起预热请求...');
+    try { await this.page.evaluate(() => fetch('/v1beta/models').catch(() => {})); } catch (e) {}
 
-    // 3. 等待反应
-    this.logger.info('[Wakeup] ⏳ 等待 3 秒检测响应...');
+    // 3. 等待
+    this.logger.info('[Wakeup] ⏳ 等待 3 秒...');
     await this.page.waitForTimeout(3000);
 
-    this.logger.info('[Browser] (后台任务) 🔥 唤醒守护进程启动 (逻辑: 排除纯 rocket_launch 文本)...');
+    this.logger.info('[Browser] (后台任务) 🔥 唤醒守护 V13 已启动 (指纹校验: Icon + Text)...');
 
-    // 4. 无限循环守护
+    // 4. 无限循环
     while (this.page && !this.page.isClosed()) {
         try {
             // --- A. 清理干扰 ---
@@ -552,64 +548,48 @@ class BrowserManager {
                 await this.page.evaluate(() => document.querySelectorAll('.cdk-overlay-backdrop').forEach(el => el.remove()));
             } catch (e) {}
 
-            // --- B. 核心查找逻辑 (遍历所有按钮，精确比对文本) ---
-            let targetBtn = null;
+            // --- B. 核心查找逻辑 (指纹匹配) ---
             
-            // 抓取所有可见的 button 和 role="button"
-            // 注意：这里不做 hasText 筛选，全部抓下来自己判断，防止漏网
-            const candidates = await this.page.locator('button:visible, [role="button"]:visible').all();
+            // 逻辑解释：
+            // 1. .interaction-modal p  -> 必须是交互弹窗里的段落
+            // 2. hasText: /rocket_launch/ -> 必须包含火箭图标的代码
+            // 3. hasText: /Launch/        -> 必须包含 Launch 文字
+            // 只有同时满足这三点，才是我们要找的“唤醒按钮”
+            // 其他任何弹窗（Error/Confirm/Info）都不可能同时包含 rocket_launch 图标和 Launch 文字
             
-            for (const btn of candidates) {
-                try {
-                    // 获取按钮的完整文本
-                    const rawText = await btn.innerText();
-                    const text = rawText.trim(); // 去除首尾空格
-                    
-                    // 检查是否包含 "launch" (忽略大小写)
-                    if (text.toLowerCase().includes('launch')) {
-                        
-                        // [关键判断] 排除误触按钮
-                        // 误触按钮的文本仅仅是 "rocket_launch" (图标代码)
-                        if (text === 'rocket_launch') {
-                            // this.logger.debug(`[Wakeup] 排除误触按钮: ${text}`);
-                            continue;
-                        }
+            const targetElement = this.page.locator('.interaction-modal p')
+                .filter({ hasText: 'rocket_launch' }) // 指纹1：图标
+                .filter({ hasText: /Launch/i })       // 指纹2：文字
+                .first();
 
-                        // 如果代码走到这里，说明：
-                        // 1. 它包含 "launch"
-                        // 2. 它不等于 "rocket_launch"
-                        // 3. 那么它一定是 "rocket_launch Launch!" 或者纯 "Launch" -> 这就是目标！
-                        
-                        // this.logger.info(`[Wakeup] 🎯 锁定目标! 文本: [${text.replace(/\n/g, ' ')}]`);
-                        targetBtn = btn;
-                        break; // 找到一个就够了
-                    }
-                } catch (err) {
-                    // 忽略遍历过程中的元素变动
-                }
-            }
-
-            // --- C. 狂暴连点 ---
-            if (targetBtn) {
-                this.logger.warn('⚠️ [Wakeup] 👁️ 发现唤醒按钮，启动 30 连击...');
+            // 检测是否存在且可见
+            if (await targetElement.isVisible({ timeout: 500 })) {
                 
+                // 再次获取文本做最终确认日志
+                const text = (await targetElement.innerText()).replace(/\n/g, ' ').trim();
+                this.logger.warn(`⚠️ [Wakeup] 👁️ 指纹匹配成功! 发现休眠弹窗: [${text}]`);
+                this.logger.warn('⚠️ [Wakeup] 🚀 启动 30 连击...');
+
+                // --- C. 狂暴连点 ---
                 for (let i = 1; i <= 30; i++) {
                     try {
-                        // 每次点击前确认还在不在
-                        if (!await targetBtn.isVisible({ timeout: 50 })) {
-                            this.logger.info(`[Wakeup] ✅ 按钮在第 ${i} 次前消失，任务完成。`);
+                        // 每次点击前确认
+                        if (!await targetElement.isVisible({ timeout: 50 })) {
+                            this.logger.info(`[Wakeup] ✅ 弹窗已消失，停止连击。`);
                             break;
                         }
-                        await targetBtn.click({ force: true, noWaitAfter: true, timeout: 500 });
+                        // 强制点击这个 p 标签 (它就是那个按钮的本体)
+                        await targetElement.click({ force: true, noWaitAfter: true, timeout: 500 });
                     } catch (err) { break; }
+                    
                     await this.page.waitForTimeout(100);
                 }
                 
-                // 强制冷却 3 秒
+                // 冷却
                 await this.page.waitForTimeout(3000);
 
             } else {
-                // 没找到按钮，常规轮询间隔
+                // 常规巡逻
                 await this.page.waitForTimeout(2000);
             }
 
